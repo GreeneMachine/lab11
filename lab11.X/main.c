@@ -32,6 +32,7 @@
 
 void    putByteSCI(uint8_t writeByte);
 void    noteOn(uint8_t cmd, uint8_t pitch, uint8_t velocity);
+void    myTMR0ISR(void);
 
 typedef enum  {UNPRESSED, PRESSED_ACQUIRE, PRESSED_WAIT} state;
 state isrState = UNPRESSED;
@@ -39,6 +40,10 @@ state isrState = UNPRESSED;
 uint8_t hallSamples[N];
 
 uint8_t songNote[SONGLENGTH] = {0x3C, 0x3C, 0x3E, 0x3C, 0x41, 0x40, 0x3C, 0x3C, 0x3E, 0x3C, 0x43, 0x41};
+
+uint8_t nominalHallUnPressed = 63;
+uint16_t sampleRate = 1000;
+uint8_t delta = 5;
 
 //*****************************************************************
 //*****************************************************************
@@ -48,14 +53,14 @@ void main(void) {
     uint8_t pitch = 64;
     uint8_t instrument=0;
     char    cmd;
-    uint8_t nominalHallUnPressed = 63;
     uint8_t nominalHallPressed = 29;
-    uint8_t delta = 5;
-    uint16_t sampleRate = 1000;
     uint8_t keyVelocity;
     
     SYSTEM_Initialize();
     ADC_SelectChannel(HALL_SENSOR);
+    TMR0_SetInterruptHandler(myTMR0ISR);
+    INTERRUPT_GlobalInterruptEnable();
+    INTERRUPT_PeripheralInterruptEnable();
     
     printf("Development Board\r\n");
     printf("inLab 11 terminal \r\n");
@@ -273,11 +278,11 @@ void main(void) {
                         }    
                     }
                     
-                    noteOn(PLAYNOTE, songNotes[i], keyVelocity);
+                    noteOn(PLAYNOTE, songNote[i], keyVelocity);
                     
                     while (isrState != UNPRESSED);
                     
-                    noteOn(NOTEOFF, songNotes[i], keyVelocity);
+                    noteOn(NOTEOFF, songNote[i], keyVelocity);
                     
                 }
                 
@@ -299,11 +304,12 @@ void main(void) {
 void myTMR0ISR(void){
     
     static uint8_t numCollected = 0;
+    
 
     switch (isrState){
         
         case UNPRESSED:
-            
+                       
            if ( (ADC_GetConversionResult()>>8) < nominalHallUnPressed - delta) {
                isrState = PRESSED_ACQUIRE;
                numCollected = 0; 
@@ -313,6 +319,8 @@ void myTMR0ISR(void){
            break;
         
         case PRESSED_ACQUIRE:
+            
+            //printf("acquire");
             
             hallSamples[numCollected] = (ADC_GetConversionResult()>>8);
             
@@ -335,7 +343,7 @@ void myTMR0ISR(void){
 
     }
     
-    TMR0_WriteTimer(TMR0_ReadTimer() + (0x10000 - sampleCount));
+    TMR0_WriteTimer(TMR0_ReadTimer() + (0x10000 - sampleRate));
     
     INTCONbits.TMR0IF = 0;
     
