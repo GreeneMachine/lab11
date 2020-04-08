@@ -282,7 +282,33 @@ void main(void) {
     } // end infinite loop    
 } // end main
 
+typedef enum  {UNPRESSED, PRESSED_ACQUIRE, PRESSED_WAIT} state;
 
+void myTMR0ISR(void){
+    
+    static state isrState = UNPRESSED;
+
+    switch (isrState){
+        
+        case UNPRESSED:
+           
+            break;
+        
+        case PRESSED_ACQUIRE:
+            
+            break;
+        
+        case PRESSED_WAIT:
+            
+            break;          
+
+    }
+    
+    TMR0_WriteTimer(TMR0_ReadTimer() + (0x10000 - sampleCount));
+    
+    INTCONbits.TMR0IF = 0;
+    
+}
 
 //*****************************************************************
 // Sends a byte to MIDI attached to serial port
