@@ -17,10 +17,6 @@
 // assignment, course failure and a report to the Academic Dishonesty
 // Board.
 //*****************************************************************
-
-
-this is a test uno dos tres
-
 #include "mcc_generated_files/mcc.h"
 #pragma warning disable 520     
 #pragma warning disable 1498
