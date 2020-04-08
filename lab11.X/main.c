@@ -45,6 +45,7 @@ void main(void) {
     uint8_t nominalHallPressed = 29;
     uint8_t delta = 5;
     uint16_t sampleRate = 1000;
+    uint8_t keyVelocity;
     
     
     SYSTEM_Initialize();
@@ -207,8 +208,17 @@ void main(void) {
                 // is above the calibrated pressed value plus delta.
                 i=0;
 			// put some code here.  I needed 2 lines of code,
+                
+                keyVelocity = N + sample[N-1];
+                for (i=0; i<N; i++) {
+                    if (nominalHallPressed + delta > sample[i]) {
+                        keyVelocity = i;
+                        break;
+                    }    
+                }
 
-                printf("key velocity = %d\r\n",i);
+
+                printf("key velocity = %d\r\n",keyVelocity);
                 break;                               
                 
             //--------------------------------------------
@@ -239,7 +249,7 @@ void main(void) {
                 printf("        close hairless\r\n");
                 printf("    Launch PuTTY and reconnect to the VCOM port\r\n");
                 
-                pitch=64;
+                pitch=35;
                 instrument = 0;
                 while(TOP_BUTTON_GetValue() == 1);
                 while(BOTTOM_BUTTON_GetValue() != 0) {
@@ -251,8 +261,8 @@ void main(void) {
                     noteOn(NOTEOFF, pitch, 105);
 
                     pitch = pitch + 1;
-                    if (pitch > 76) {    
-                        pitch = 64;
+                    if (pitch > 81) {    
+                        pitch = 35;
                         instrument = (instrument + 8) & 0x7F;
                         putByteSCI(PLAYINSTRUMENT);
                         putByteSCI(instrument);
