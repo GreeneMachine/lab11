@@ -22,7 +22,7 @@
 #pragma warning disable 1498
 
 //NOTE FUNCTIONS
-#define PLAYNOTE        0x90 
+#define PLAYNOTE        0x99 
 #define NOTEOFF         0x80
 #define PLAYINSTRUMENT  0xC0
 
