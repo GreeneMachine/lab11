@@ -22,15 +22,23 @@
 #pragma warning disable 1498
 
 //NOTE FUNCTIONS
-#define PLAYNOTE        0x99 
+#define PLAYNOTE        0x90 
 #define NOTEOFF         0x80
 #define PLAYINSTRUMENT  0xC0
 
 #define PLAY_DELAY      50000
 #define N               64
+#define SONGLENGTH      12
 
 void    putByteSCI(uint8_t writeByte);
 void    noteOn(uint8_t cmd, uint8_t pitch, uint8_t velocity);
+
+typedef enum  {UNPRESSED, PRESSED_ACQUIRE, PRESSED_WAIT} state;
+state isrState = UNPRESSED;
+
+uint8_t hallSamples[N];
+
+uint8_t songNote[SONGLENGTH] = {0x3C, 0x3C, 0x3E, 0x3C, 0x41, 0x40, 0x3C, 0x3C, 0x3E, 0x3C, 0x43, 0x41};
 
 //*****************************************************************
 //*****************************************************************
@@ -40,13 +48,11 @@ void main(void) {
     uint8_t pitch = 64;
     uint8_t instrument=0;
     char    cmd;
-    uint8_t sample[N];
     uint8_t nominalHallUnPressed = 63;
     uint8_t nominalHallPressed = 29;
     uint8_t delta = 5;
     uint16_t sampleRate = 1000;
     uint8_t keyVelocity;
-    
     
     SYSTEM_Initialize();
     ADC_SelectChannel(HALL_SENSOR);
@@ -79,10 +85,11 @@ void main(void) {
                 printf("Z: Reset processor.\r\n");
                 printf("z: Clear the terminal.\r\n");
                 printf("d/D: decrement/increment delta\r\n");
-                printf("s/S: decrement/increment sampleRate\r\n");
                 printf("c/C: calibrate unpressed/pressed hall sensor.\r\n");   
                 printf("1: report a single Hall effect sensor reading.\r\n");   
-                printf("t: wait for piano keypress and report %d samples, one every %dus.\r\n",N, sampleRate);
+                printf("t: determine strike time with 64 samples, once every 1000 us.\r\n");
+                printf("T: strike indicator and time\r\n");
+                printf("i: ISR values\r\n");
                 printf("M: enter into Midi mode.\r\n");
                 printf("-------------------------------------------------\r\n");
 				break;
@@ -144,17 +151,6 @@ void main(void) {
                 else delta += 1;
                 printf("new delta = %d\r\n",delta);
                 break;
-
-            //--------------------------------------------
-            // Tune sampling rate
-			//-------------------------------------------- 
-            case 's':
-            case 'S':
-                if (cmd == 's') sampleRate -= 100;
-                else sampleRate += 100;
-                printf("new sampleRate = %d TMR0 counts = %duS\r\n",sampleRate, sampleRate);
-                break;
-
                 
             //--------------------------------------------
 			// Convert hall effect sensor once
@@ -170,57 +166,69 @@ void main(void) {
             //--------------------------------------------
 			// Wait for a keypress and then record samples
 			//--------------------------------------------
-            case't': 
+            case 't': 
                 printf("Tap a piano key.\r\n");
-                
-                // Wait for sensor to deviate from the nominal unpressed value
-                // This would indicate the begining of a keypress event
-                while ( (ADC_GetConversionResult()>>8) > nominalHallUnPressed - delta){
-                    TMR0_WriteTimer(TMR0_ReadTimer() + 0xFFFF - sampleRate);
-                    INTCONbits.TMR0IF = false;
-                    ADC_StartConversion();
-                    while (TMR0_HasOverflowOccured() == false);                    
-                }
-                    
-                // Record N samples at sampleRate TMR0 counts
-                for (i=0; i<N; i++) {
-                    sample[i] = (ADC_GetConversionResult()>>8);
-                    TMR0_WriteTimer(TMR0_ReadTimer() + 0xFFFF - sampleRate);  
-                    INTCONbits.TMR0IF = false;
-                    TEST_PIN_SetHigh();
-                    ADC_StartConversion();
-                    TEST_PIN_SetLow();
-                    while (TMR0_HasOverflowOccured() == false);
-                } // end for i
+
+                while (isrState != PRESSED_WAIT);
                 
                 // print the N samples to the terminal 
                 for (i=0; i<N; i++) {                    
-                    printf("%4d ",sample[i]);
+                    printf("%4d ",hallSamples[i]);
                 } // end for i
                 printf("\r\n");
-
-                // You are responsible for this section of code.  Compute the
-                // key press "velocity".  A surrogate for this value will be
-                // the first index of the sample array which is less than the
-                // calibrated pressed value plus delta.  If no value of the 
-                // sample array is less than this value, then return the length 
-                // of the sample array (N) plus the amount the last sample value 
-                // is above the calibrated pressed value plus delta.
-                i=0;
-			// put some code here.  I needed 2 lines of code,
                 
-                keyVelocity = N + sample[N-1];
+                keyVelocity = N + hallSamples[N-1];
                 for (i=0; i<N; i++) {
-                    if (nominalHallPressed + delta > sample[i]) {
-                        keyVelocity = i;
+                    if (nominalHallPressed + delta > hallSamples[i]) {
+                        keyVelocity = 128 - i;
                         break;
                     }    
                 }
-
-
-                printf("key velocity = %d\r\n",keyVelocity);
-                break;                               
                 
+                printf("key velocity = %d\r\n",keyVelocity);
+                break; 
+                
+            
+            case 'T': 
+                
+                printf("Tap piano key and press keyboard key to exit.\r\n");
+                
+                while (!EUSART1_DataReady) {
+                    
+                    if (isrState == PRESSED_WAIT){
+                        
+                        keyVelocity = N + hallSamples[N-1];
+
+                        for (i=0; i<N; i++) {
+                            if (nominalHallPressed + delta > hallSamples[i]) {
+                                keyVelocity = 128 - i;
+                                break;
+                            }    
+                        }
+
+                        printf("key velocity = %d     ",keyVelocity);
+                        
+                        while (isrState == PRESSED_WAIT);
+                        
+                        printf("released.\r\n");
+                    
+                    }                 
+                    
+                }
+                
+                (void) EUSART1_Read();
+
+                break;
+                
+            case 'i':
+                
+                for (i=0; i<N; i++) {                    
+                    printf("%4d ",hallSamples[i]);
+                } // end for i
+                printf("\r\n");
+                
+                break;
+
             //--------------------------------------------
 			// Midi mode
 			//--------------------------------------------
@@ -248,26 +256,31 @@ void main(void) {
                 printf("        MIDI Out -> (Not Connected)\r\n");
                 printf("        close hairless\r\n");
                 printf("    Launch PuTTY and reconnect to the VCOM port\r\n");
+                              
+                for (i = 0; i < SONGLENGTH; i++) {
+                    
+                    putByteSCI(PLAYINSTRUMENT);
+                    putByteSCI(0);
+                    
+                    while (isrState != PRESSED_WAIT);
+                    
+                    keyVelocity = N + hallSamples[N-1];
+
+                    for (uint8_t j = 0; j < N; j++) {
+                        if (nominalHallPressed + delta > hallSamples[j]) {
+                            keyVelocity = 128 - j;
+                            break;
+                        }    
+                    }
+                    
+                    noteOn(PLAYNOTE, songNotes[i], keyVelocity);
+                    
+                    while (isrState != UNPRESSED);
+                    
+                    noteOn(NOTEOFF, songNotes[i], keyVelocity);
+                    
+                }
                 
-                pitch=35;
-                instrument = 0;
-                while(TOP_BUTTON_GetValue() == 1);
-                while(BOTTOM_BUTTON_GetValue() != 0) {
-
-                    noteOn(PLAYNOTE, pitch, 105);
-                    TMR0_WriteTimer(TMR0_ReadTimer() + 0xFFFF - PLAY_DELAY);
-                    INTCONbits.TMR0IF = 0;
-                    while (TMR0_HasOverflowOccured() == false);
-                    noteOn(NOTEOFF, pitch, 105);
-
-                    pitch = pitch + 1;
-                    if (pitch > 81) {    
-                        pitch = 35;
-                        instrument = (instrument + 8) & 0x7F;
-                        putByteSCI(PLAYINSTRUMENT);
-                        putByteSCI(instrument);
-                    } // end playing up a scale                
-                } // end until lower button press
                 break;                               
                 
 			//--------------------------------------------
@@ -282,24 +295,42 @@ void main(void) {
     } // end infinite loop    
 } // end main
 
-typedef enum  {UNPRESSED, PRESSED_ACQUIRE, PRESSED_WAIT} state;
 
 void myTMR0ISR(void){
     
-    static state isrState = UNPRESSED;
+    static uint8_t numCollected = 0;
 
     switch (isrState){
         
         case UNPRESSED:
+            
+           if ( (ADC_GetConversionResult()>>8) < nominalHallUnPressed - delta) {
+               isrState = PRESSED_ACQUIRE;
+               numCollected = 0; 
+           }
            
-            break;
+           ADC_StartConversion();
+           break;
         
         case PRESSED_ACQUIRE:
             
+            hallSamples[numCollected] = (ADC_GetConversionResult()>>8);
+            
+            numCollected++;
+            if (numCollected == N) {
+                isrState = PRESSED_WAIT;
+            }
+            
+            ADC_StartConversion();
             break;
         
         case PRESSED_WAIT:
             
+            if ( (ADC_GetConversionResult()>>8) > nominalHallUnPressed - delta) {
+                isrState = UNPRESSED;
+            }
+            
+            ADC_StartConversion();
             break;          
 
     }
